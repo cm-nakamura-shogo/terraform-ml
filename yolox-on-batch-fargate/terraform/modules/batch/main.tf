@@ -55,7 +55,6 @@ resource "aws_batch_compute_environment" "fargate" {
 
   type         = "MANAGED"
   service_role = var.service_role_arn
-  # service_role = "arn:aws:iam::321486094060:role/aws-service-role/batch.amazonaws.com/AWSServiceRoleForBatch"
 }
 
 # ジョブキュー

@@ -26,11 +26,3 @@ def download_file(destination_path: str, bucket_name: str, object_key: str):
 def upload_file(source_path: str, bucket_name: str, object_key: str):
     client = boto3.client('s3')
     client.upload_file(str(source_path), bucket_name, object_key)
-
-if __name__ == "__main__":
-
-    download_directory("bucket", "sample-yolox-lambda-321486094060", prefix="input/")
-
-    download_file("aaa.jpg", "sample-yolox-lambda-321486094060", object_key="input/demo.jpg")
-
-    upload_file("aaa.jpg", "sample-yolox-lambda-321486094060", object_key="input/demo6.jpg")
