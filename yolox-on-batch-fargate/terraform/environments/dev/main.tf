@@ -1,47 +1,55 @@
 
-variable "project_prefix" {}
+provider "aws" {
+  default_tags {
+    tags = {
+      project_prefix = var.project_prefix
+    }
+  }
+}
 
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
-
-locals {
-  account_id           = data.aws_caller_identity.current.account_id
-  region               = data.aws_region.current.name
-  bucket_name          = "${var.project_prefix}-${local.account_id}"
-  object_input_prefix  = "input/"
-  object_output_prefix = "output/"
-  function_name        = "${var.project_prefix}"
-  iam_role_name        = "${var.project_prefix}-iam-role"
-  iam_policy_name      = "${var.project_prefix}-iam-policy"
-  repository_name      = "${var.project_prefix}"
-  image_uri            = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/${local.repository_name}"
+module vpc {
+  source = "../../modules/vpc"
+  project_prefix = var.project_prefix
 }
 
 module ecr {
-  source="../../modules/ecr"
-  repository_name=local.repository_name
+  source = "../../modules/ecr"
+  project_prefix = var.project_prefix
+  ecr_repository_name = local.ecr_repository_name
 }
 
 module iam {
   source="../../modules/iam"
-  iam_role_name=local.iam_role_name
-  iam_policy_name=local.iam_policy_name
+  project_prefix = var.project_prefix
+  account_id = local.account_id
 }
 
-module lambda {
-  source="../../modules/lambda"
-  function_name=local.function_name
-  image_uri=local.image_uri
-  iam_role_arn=module.iam.iam_role_arn
-  bucket_name=local.bucket_name
-  object_input_prefix=local.object_input_prefix
-  object_output_prefix=local.object_output_prefix
+module batch {
+  source = "../../modules/batch"
+  project_prefix = var.project_prefix
+  image_uri = local.ecr_image_uri
+  subnet_id = module.vpc.subnet_id
+  security_group_id = module.vpc.security_group_id
+  job_role_arn = module.iam.job_role_arn
+  job_execution_role_arn = module.iam.job_execution_role_arn
+  service_role_arn = module.iam.batch_service_role_arn
+  environments = local.environments
+}
+
+module event_bridge {
+  source = "../../modules/event_bridge"
+  project_prefix = var.project_prefix
+  execution_role_arn = module.iam.events_execution_role_arn
+  job_queue_arn = module.batch.job_queue_arn
+  job_definition_arn = module.batch.job_definition_arn
+  bucket_name = local.bucket_name
+  object_input_prefix = local.object_input_prefix
 }
 
 module s3 {
   source="../../modules/s3"
+  project_prefix = var.project_prefix
   bucket_name=local.bucket_name
   object_input_prefix=local.object_input_prefix
   object_output_prefix=local.object_output_prefix
-  lamba_function_arn=module.lambda.lamba_function_arn
 }

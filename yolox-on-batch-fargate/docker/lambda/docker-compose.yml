@@ -9,3 +9,4 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     tty: true
+    command: "sh"
