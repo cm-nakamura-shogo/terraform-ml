@@ -31,7 +31,7 @@ module batch {
   subnet_id = module.vpc.subnet_id
   security_group_id = module.vpc.security_group_id
   job_role_arn = module.iam.job_role_arn
-  job_execution_role_arn = module.iam.job_execution_role_arn
+  instance_profile_arn = module.iam.instance_profile_arn
   service_role_arn = module.iam.batch_service_role_arn
   environments = local.environments
 }

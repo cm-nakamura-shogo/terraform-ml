@@ -11,6 +11,18 @@ data "aws_iam_policy_document" "trust_ecs_tasks" {
   }
 }
 
+# 信頼ポリシー
+data "aws_iam_policy_document" "trust_ec2" {
+  statement {
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+    actions = ["sts:AssumeRole"]
+  }
+}
+
 # ジョブロール
 resource "aws_iam_role" "job_role" {
   name = "${var.project_prefix}-job-role"
@@ -55,13 +67,19 @@ resource "aws_iam_role_policy_attachment" "job_role" {
 }
 
 
-# ジョブ実行ロール
-resource "aws_iam_role" "job_execution_role" {
-  name = "${var.project_prefix}-job-execution-role"
-  assume_role_policy = data.aws_iam_policy_document.trust_ecs_tasks.json
+# インスタンスロール
+resource "aws_iam_role" "instance_role" {
+  name = "${var.project_prefix}-instance-role"
+  assume_role_policy = data.aws_iam_policy_document.trust_ec2.json
   managed_policy_arns = [
-    "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+    "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
   ]
+}
+
+# インスタンスプロファイル
+resource "aws_iam_instance_profile" "instance_profile" {
+  name = "${var.project_prefix}-instance-role-profile"
+  role = aws_iam_role.instance_role.name
 }
 
 # 信頼ポリシー

@@ -1,18 +1,15 @@
 ## 手順
 
-### TerraformでECRのみ構築
+### Terraformでリソースを全て構築
 
-まずはECRのみを構築します。理由はECRレポジトリが先に無いとコンテナイメージを`push`できないためです。
-
-またコンテナイメージが無いとTerraformでLambdaを作成することができないため、先にECRレポジトリを作成します。
+最初にリソースをすべて作成します。
 
 ```shell
 # 作業フォルダ: terraform/environments/dev/
-terraform init # 初回のみでOK
-aws-vault exec {プロファイル名} -- terraform apply -target="module.ecr" -var 'project_prefix={任意のプレフィックス}' # aws-vault経由で実行
+aws-vault exec {プロファイル名} -- terraform apply -var 'project_prefix={任意のプレフィックス}' # aws-vault経由で実行
 ```
 
-工夫すればこの辺りの依存関係を自動化できる可能性もありますが、今回は手動でやっています。
+Lambdaの時と異なり、ECRレポジトリにimageがpushされていなくてもBatchのジョブ定義は作成できますので、最初にすべて作ることが可能です。
 
 ### イメージのビルド
 
@@ -22,7 +19,7 @@ aws-vault exec {プロファイル名} -- terraform apply -target="module.ecr" -
 PROJECT_PREFIX="{任意のプレフィックス}"
 ```
 
-{任意のプレフィックス}は、`terraform apply`の際に指定したものと合致するようにしておいてください。
+{任意のプレフィックス}は、後述の`terraform apply`の際に指定したものと合致するようにしておいてください。
 
 その後は以下でビルドができます。
 
@@ -31,79 +28,24 @@ PROJECT_PREFIX="{任意のプレフィックス}"
 docker compose build
 ```
 
-ビルドには時間がかかりました。PyTorchをインストールしているためと考えられます。
-
-またイメージの容量もかなり大きいためご注意ください。
-
-```shell
-# 確認
-docker images
-
-# REPOSITORY             TAG       IMAGE ID       CREATED         SIZE
-# sample-yolox-lambda    latest    b0b91c72e91d   2 hours ago     9.81GB
-```
-
 ### ECRへコンテナイメージをpush
 
-`push_ecr.ps1`というスクリプトを準備していますのでそちらを実行してください。
-
-```powershell
-.\push_ecr.ps1 -ProfileName {プロファイル名} -ProjectPrefix {任意のプレフィックス}
-```
-
-{任意のプレフィックス}は、`terraform apply`の際に指定したものと合致するようにしておいてください。
-
-`push_ecr.ps1`の内容は以下です。
-
-```powershell
-param(
-    [Parameter(Mandatory)]
-    [string]$ProfileName,
-    [Parameter(Mandatory)]
-    [string]$ProjectPrefix
-)
-
-$REGION = $(aws configure get region --profile $ProfileName)
-$ACCOUNT_ID = $(aws sts get-caller-identity --query 'Account' --output text --profile $ProfileName)
-
-$REPOSITORY_NAME = $ProjectPrefix
-$ECR_BASE_URL = "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
-$ECR_IMAGE_URI = "${ECR_BASE_URL}/${REPOSITORY_NAME}"
-
-Write-Output "ECR_BASE_URL: ${ECR_BASE_URL}"
-Write-Output "ECR_IMAGE_URI: ${ECR_IMAGE_URI}"
-
-# ECRへのログイン
-aws ecr get-login-password --region ${REGION} --profile $ProfileName | docker login --username AWS --password-stdin ${ECR_BASE_URL}
-
-# tagの付け替え
-docker tag "${REPOSITORY_NAME}:latest" "${ECR_IMAGE_URI}:latest"
-
-# ECRへのpush
-docker push "${ECR_IMAGE_URI}:latest"
-
-# Lambdaを更新
-aws lambda update-function-code --function-name $ProjectPrefix --image-uri "${ECR_IMAGE_URI}:latest" --profile $ProfileName | Out-Null
-```
-
-なお、この時点では`push_ecr.ps1`スクリプトの最後の`aws lambda update-function-code`のみ失敗します。リソースがまだ作られてないためです。
-
-こちらは、更新を兼ねているためこのようなスクリプトとなっています。
-
-また同様のことが可能なシェルも`push_ecr.sh`として置いてありますのでご活用ください。
+`push_ecr.sh`というスクリプトを準備していますのでそちらを実行してください。
 
 ```shell
-push_ecr.sh {プロファイル名} {任意のプレフィックス}
+.\push_ecr.sh {プロファイル名} {任意のプレフィックス}
 ```
 
-`push_ecr.sh`の内容は以下となっています。
+{任意のプレフィックス}は、後述の`terraform apply`の際に指定したものと合致するようにしておいてください。
+
+`push_ecr.sh`の内容は以下です。
 
 ```shell
 ProfileName=$1
 ProjectPrefix=$2
 
-REGION=$(aws configure get region --profile $ProfileName)
-ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text --profile $ProfileName)
+REGION=$(aws --profile $ProfileName configure get region)
+ACCOUNT_ID=$(aws --profile $ProfileName sts get-caller-identity --query 'Account' --output text )
 
 REPOSITORY_NAME=$ProjectPrefix
 ECR_BASE_URL="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
@@ -113,22 +55,33 @@ echo "ECR_BASE_URL: ${ECR_BASE_URL}"
 echo "ECR_IMAGE_URI: ${ECR_IMAGE_URI}"
 
 # ECRへのログイン
-aws ecr get-login-password --region ${REGION} --profile $ProfileName | docker login --username AWS --password-stdin ${ECR_BASE_URL}
+aws --profile $ProfileName ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ECR_BASE_URL}
 
 # tagの付け替え
 docker tag "${REPOSITORY_NAME}:latest" "${ECR_IMAGE_URI}:latest"
 
 # ECRへのpush
 docker push "${ECR_IMAGE_URI}:latest"
-
-# Lambdaを更新
-aws lambda update-function-code --function-name $ProjectPrefix --image-uri "${ECR_IMAGE_URI}:latest" --profile $ProfileName > /dev/null
 ```
 
-### Terraformでリソースを全て構築
+今回からPowershellではなくGit Bashなどからshellを使う形にしています。
 
-最後にECR以外のリソースを作成します。
+以上で構築の準備が完了しました。
+
+## 動作確認
+
+AWS CLIでjpgファイルをアップロードしてみます。
+
+前回同様に`asset/demo.jpg`にサンプル画像を配置してありますので良ければお試しください。
+
+（今回はオブジェクトキーは時刻情報が付与するようにしています）
 
 ```shell
-# 作業フォルダ: terraform/environments/dev/
-aws-vault exec {プロファイル名} -- terraform apply -var 'project_prefix={任意のプレフィックス}' # aws-vault経由で実行
+aws s3 cp asset/demo.jpg s3://{バケット名}/input/$(date "+%Y%m%d-%H%M%S").jpg --profile {プロファイル名}
+```
+
+処理が終わると、`output/`に結果が配置されます。
+
+```shell
+aws s3 ls s3://{バケット名}/output/ --profile {プロファイル名}
+```
